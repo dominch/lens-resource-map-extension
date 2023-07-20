@@ -62,6 +62,8 @@ export class KubeForceChart extends React.Component<KubeForceChartProps, State> 
   protected pvcStore = Renderer.K8sApi.apiManager.getStore(Renderer.K8sApi.pvcApi) as Renderer.K8sApi.VolumeClaimStore;
   protected ingressStore =  Renderer.K8sApi.apiManager.getStore(Renderer.K8sApi.ingressApi) as Renderer.K8sApi.IngressStore;
   protected configMapStore = Renderer.K8sApi.apiManager.getStore(Renderer.K8sApi.configMapApi) as Renderer.K8sApi.ConfigMapsStore;
+  protected jobStore = Renderer.K8sApi.apiManager.getStore(Renderer.K8sApi.jobApi) as Renderer.K8sApi.JobStore;
+  protected cronJobStore = Renderer.K8sApi.apiManager.getStore(Renderer.K8sApi.cronJobApi) as Renderer.K8sApi.CronJobStore;
 
   private kubeObjectStores: Renderer.K8sApi.KubeObjectStore[] = []
   private watchDisposers: Function[] = [];
@@ -96,6 +98,8 @@ export class KubeForceChart extends React.Component<KubeForceChartProps, State> 
       this.pvcStore,
       this.configMapStore,
       this.secretStore,
+      this.jobStore,
+      this.cronJobStore
     ]
     await this.loadData();
 
@@ -121,7 +125,9 @@ export class KubeForceChart extends React.Component<KubeForceChartProps, State> 
       reaction(() => this.secretStore.items.toJSON(), () => { this.refreshItems(this.secretStore) }, reactionOpts),
       reaction(() => this.pvcStore.items.toJSON(), () => { this.refreshItems(this.pvcStore) }, reactionOpts),
       reaction(() => this.ingressStore.items.toJSON(), () => { this.refreshItems(this.ingressStore) }, reactionOpts),
-      reaction(() => this.configMapStore.items.toJSON(), () => { this.refreshItems(this.configMapStore) }, reactionOpts)
+      reaction(() => this.configMapStore.items.toJSON(), () => { this.refreshItems(this.configMapStore) }, reactionOpts),
+      reaction(() => this.jobStore.items.toJSON(), () => { this.refreshItems(this.jobStore) }, reactionOpts),
+      reaction(() => this.cronJobStore.items.toJSON(), () => { this.refreshItems(this.cronJobStore) }, reactionOpts)
     ])
   }
 
@@ -217,6 +223,8 @@ export class KubeForceChart extends React.Component<KubeForceChartProps, State> 
     this.generatePods();
     this.generateServices();
     this.generateIngresses();
+    this.generateJobs();
+    this.generateCronJobs();
 
     if (!nodes.length || nodes.length != this.nodes.length || links.length != this.links.length) { // TODO: Improve the logic
       this.setState({
@@ -245,6 +253,26 @@ export class KubeForceChart extends React.Component<KubeForceChartProps, State> 
     deploymentStore.getAllByNs(selectedNamespaces).map((deployment: Renderer.K8sApi.Deployment) => {
       const pods = deploymentStore.getChildPods(deployment)
       this.getControllerChartNode(deployment, pods);
+    });
+  }
+
+  protected generateJobs() {
+    const { jobStore } = this;
+    const { selectedNamespaces} = this.namespaceStore;
+
+    jobStore.getAllByNs(selectedNamespaces).map((job: Renderer.K8sApi.Job) => {
+      const pods = jobStore.getChildPods(job)
+      this.getControllerChartNode(job, pods);
+    });
+  }
+
+  protected generateCronJobs() {
+    const { jobStore, cronJobStore } = this;
+    const { selectedNamespaces} = this.namespaceStore;
+
+    cronJobStore.getAllByNs(selectedNamespaces).map((cronJob: Renderer.K8sApi.CronJob) => {
+      const jobs = jobStore.getJobsByOwner(cronJob)
+      this.getCronJobNode(cronJob, jobs);
     });
   }
 
@@ -437,6 +465,17 @@ export class KubeForceChart extends React.Component<KubeForceChartProps, State> 
     this.nodes.push(chartNode)
 
     return chartNode;
+  }
+
+  getCronJobNode(object: Renderer.K8sApi.CronJob, jobs: Renderer.K8sApi.Job[]): ChartDataSeries {
+    const controllerNode = this.generateNode(object);
+
+    jobs.forEach((job: Renderer.K8sApi.Job) => {
+      const jobNode = this.generateNode(job)
+      this.addLink({ source: controllerNode.id, target: jobNode.id})
+    })
+
+    return controllerNode
   }
 
   getControllerChartNode(object: Renderer.K8sApi.KubeObject, pods: Renderer.K8sApi.Pod[]): ChartDataSeries {
